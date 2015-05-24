@@ -1,0 +1,15 @@
+Experiment: 
+  Problem: pml 
+  Problem parameters:  
+  Algorithm: forest 
+  Algorithm parameters: ntree=1000 
+  Replication: 2 
+  Seed: 314415843 
+  Problem seed: 12346 
+Result:
+ 'table' int [1:5, 1:5] 2228 10 0 0 0 4 1503 6 0 1 ...
+ - attr(*, "dimnames")=List of 2
+NULL
+          used (Mb) gc trigger   (Mb)  max used   (Mb)
+Ncells 1582826 84.6    2403845  128.4   2403845  128.4
+Vcells 6053424 46.2  267555251 2041.3 417955399 3188.8

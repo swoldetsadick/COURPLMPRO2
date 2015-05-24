@@ -1,0 +1,15 @@
+Experiment: 
+  Problem: pml 
+  Problem parameters:  
+  Algorithm: logit 
+  Algorithm parameters: nIter=95 
+  Replication: 2 
+  Seed: 314415847 
+  Problem seed: 12346 
+Result:
+ 'table' int [1:5, 1:5] 2023 105 10 36 10 28 918 68 8 23 ...
+ - attr(*, "dimnames")=List of 2
+NULL
+          used (Mb) gc trigger  (Mb) max used  (Mb)
+Ncells 1585089 84.7    2403845 128.4  2403845 128.4
+Vcells 6055037 46.2   19385567 148.0 19385567 148.0

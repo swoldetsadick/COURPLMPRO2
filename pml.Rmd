@@ -1,0 +1,424 @@
+---
+title: "Human Activity Recognition"
+author: "Woldetsadick Selam"
+date: "Monday, May 18, 2015"
+output: html_document
+---
+
+<hr style="border: 3px outset #595955;">
+
+<h3> Background </h3>
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible 
+to collect a large amount of data about personal activity relatively 
+inexpensively. These type of devices are part of the quantified self movement - 
+a group of enthusiasts who take measurements about themselves regularly to 
+improve their health, to find patterns in their behavior, or because they are 
+tech geeks. One thing that people regularly do is quantify how much of a 
+particular activity they do, but they rarely quantify how well they do it. In 
+this project, your goal will be to use data from accelerometers on the belt, 
+forearm, arm, and dumbell of 6 participants. They were asked to perform barbell 
+lifts correctly and incorrectly in 5 different ways. More information is 
+available from the website here: http://groupware.les.inf.puc-rio.br/har 
+(see the section on the Weight Lifting Exercise Dataset).
+The goal of your project is to predict the manner in which they did the exercise
+<b>(the "classe" variable)</b> using any of the other variables in the dataset 
+to predict with.
+
+<h3> Exploratory Data Analysis </h3>
+
+```{r, cache = TRUE}
+# Loading the training dataset
+setwd("/Users/swl/Desktop/pml")
+if(!file.exists("data")){
+  dir.create("data")
+}
+
+suppressMessages(suppressWarnings(require(downloader)))
+url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+suppressWarnings(download(url, "data/pml-training.csv", mode = "wb"))
+downloadDate <- date()
+
+train <- read.csv("data/pml-training.csv")
+```
+
+The dataset used for this analysis is called the weigth Lifting Exercise Dataset
+<sup>1</sup> and downloaded directly from the website on ```r downloadDate```.
+The training dataset is henceforth called ```train```. (Note that train dataset 
+containes both the training and testing of original dataset)
+The train dataset is composed of ```r nrow(train)``` observations for 
+```r ncol(train)``` and has ```r sum(is.na(train))``` missing values throughout.
+
+```{r, cache = TRUE}
+suppressMessages(suppressWarnings(library(caret)))
+nzv <- nearZeroVar(train[, -c(which("classe" == names(train), arr.ind = FALSE), 
+                             which("selam" == names(train), arr.ind = FALSE))])
+nzv1 <- nearZeroVar(train[, -c(which("classe" == names(train), arr.ind = FALSE), 
+                              which("selam" == names(train), arr.ind = FALSE))]
+                    ,  saveMetrics = TRUE)
+filterTrain <- train[, -nzv]
+```
+
+In some situations, the data generating mechanism can create predictors that 
+only have a single unique value. For many models, this may cause the model to 
+crash or the fit to be unstable.
+
+Similarly, predictors might have only a handful of unique values that occur with
+very low frequencies. The concern here that these predictors may become 
+zero-variance predictors when the data are split into cross-validation/bootstrap
+sub-samples or that a few samples may have an undue influence on the model. 
+These "near-zero-variance" predictors may need to be identified and eliminated 
+prior to modeling.<sup>2</sup>
+
+The list of the ```r nrow(subset(nzv1, nzv1$nzv == TRUE))``` variables that were
+filtered out of the set of ```r ncol(train)``` variables in the original dataset
+are list below:
+
+```{r, echo = FALSE}
+
+for (i in seq(1, nrow(subset(nzv1, nzv1$nzv == TRUE)), by = 5)){
+  print(paste(rownames(subset(nzv1, nzv1$nzv == TRUE))[i:(i + 4)]
+              , collapse = ", "))
+}
+
+```
+
+The new filtered data called ```filterTrain``` contains ```r nrow(filterTrain)``` 
+observations for ```r ncol(filterTrain)``` and has 
+```r sum(is.na(filterTrain))``` missing values throughout.
+
+```{r}
+for(i in 1:ncol(filterTrain)){
+  if(i <= 5 | i >= 100){
+    filterTrain[, i] <- as.factor(filterTrain[, i])
+  } else{
+    filterTrain[, i] <- as.numeric(filterTrain[, i])
+  }
+}
+```
+
+All variables, except for names and timestamps, are treated as numeric variables
+. No further pre-processing in identifying correlated predictors, linear 
+dependencies, predictor transformation or imputation is conducted. The 
+predictions methods must be chosen to be robust presence of higly correlated 
+variables and linear dependency between them, as it must be robust to non-normal
+predictors or missing values.
+
+```{r}
+filterTrain$classe <- as.factor(filterTrain$classe)
+name <- c("X", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp",
+          "num_window")
+filterTrain <- filterTrain[, - which(names(filterTrain)%in% name)]
+rm(nzv1, train, i, name, nzv)
+```
+
+<center>
+```{r, echo = FALSE}
+plot(filterTrain$classe,col = rainbow(5), main = "Frequency plot", 
+     sub = "Variable Classe")
+```
+</center>
+In the above code, some irrelevant variables are kicked-out of the datset, and
+a frequency plot of response variable is made.
+The response variable is a factor variable that can take 5 values A, B, C, D and
+E., the different ways participants performed barbell lifts. 
+The descripton of these values is as follows:
+
+<center>
+<table border = "5" width = "60%" padding = "10px">
+<tr>
+<td>Class</td>
+<td>Description</td>
+</tr>
+<tr>
+<td>A</td>
+<td>Exactly according to the specification</td>
+</tr>
+<tr>
+<td>B</td>
+<td>Throwing the elbows to the front</td>
+</tr>
+<tr>
+<td>C</td>
+<td>Lifting the dumbbell only halfway</td>
+</tr>
+<tr>
+<td>D</td>
+<td>Lowering the dumbbell only halfway</td>
+</tr>
+<tr>
+<td>E</td>
+<td>Throwing the hips to the front</td>
+</tr>
+</table>
+</center>
+
+<br>
+The goal is to predict this variable using data collected for sensors placed on 
+participants body.
+
+<center>
+<img src="img/sensor.png">
+</center>
+
+<h3> Model selection </h3>
+
+The BatchExperiment package gives an overall environment for  cross validation 
+ and modelcompetition. The code block below we take two different ratio for test
+ /train data set separtion, and let boosted trees, random forest and model based 
+predictions compete within the same framework.
+
+The selection criteria is <b>minimal misclassification error rate</b> calculated
+out-sample.
+
+We first start by treating NA is the dataset, replacing NAs with 0. Next dataset
+is separated into test/train set. Next tree classification, random forest and 
+boosted linear models compete with each other. 
+
+The design part of the code is tuning model hyper-parameters. Best - model is 
+selected based on minimal misclassification error rate. 
+
+```{r, cache = TRUE, echo = TRUE}
+filterTrain[is.na(filterTrain)] <- 0
+B <- Sys.time()
+###############################################################################
+### BatchExperiments
+###############################################################################
+
+# Load package and create a experiment registry
+suppressMessages(suppressWarnings(library("BatchJobs")))
+suppressMessages(suppressWarnings(library("soobench")))
+suppressMessages(suppressWarnings(library("BatchExperiments")))
+suppressMessages(suppressWarnings(library("mboost")))
+suppressMessages(suppressWarnings(library("caret")))
+
+#############################################
+### Creating registry and registry directory
+#############################################
+
+if(!file.exists("bench")){
+  dir.create("bench")
+}
+
+setwd("./bench")
+suppressMessages(reg <- makeExperimentRegistry(id = "pml", 
+                                               packages = "soobench"))
+
+#############################################
+### Creating dynamic train/test datasets
+#############################################
+
+# subsampling
+set.seed(12345)
+inTrain <- createDataPartition(filterTrain$classe, p = 0.6, list = FALSE)
+train <- filterTrain[inTrain, ]
+train$selam <- "train"
+test <- filterTrain[-inTrain, ]
+test$selam <- "test"
+filterTrain <- data.frame(rbind(train, test))[order(as.numeric(
+  row.names(data.frame(rbind(train, test))))),]
+
+
+#############################################
+### Problem
+#############################################
+
+# Add problem to the registry with id "iris"
+suppressMessages(addProblem(reg, id = "pml", static = filterTrain, 
+                            seed = 12345))
+
+#############################################
+### Algorithms and adding algorithms
+#############################################
+
+############## First algorithm: classification tree
+############## Returns a confusion matrix
+tree.wrapper <- function(static, ...) {
+
+  mod <- train(classe ~ ., method = "rpart", data =
+                 subset(static, static$selam == "train")[,-which(names(static)=="selam")], trControl =
+                 trainControl(method = "cv", number = 4,  allowParallel = TRUE),
+               ...)
+  pred <- predict(mod, newdata = subset(static, static$selam == "test")[,-which(names(static)=="selam")])
+  table(subset(static, static$selam == "test")[, "classe"], pred)
+
+}
+
+############## Add algorithm to the registry with id "tree"
+suppressMessages(addAlgorithm(reg, id = "tree", fun = tree.wrapper))
+
+
+############## Second algorithm: classification random forest
+############## Returns a confusion matrix
+forest.wrapper <- function(static,...) {
+
+  mod <- train(classe ~ ., data =  subset(static, static$selam == "train")[,-which(names(static)=="selam")],
+               method = "rf", prox = TRUE, trControl =
+                 trainControl(method = "cv", number = 4,  allowParallel = TRUE),
+               ...)
+  pred <- predict(mod, newdata = subset(static, static$selam == "test")[,-which(names(static)=="selam")])
+  table(subset(static, static$selam == "test")[, "classe"], pred)
+
+}
+
+############## Add algorithm to the registry with id "forest"
+suppressMessages(addAlgorithm(reg, id = "forest", fun = forest.wrapper))
+
+############## Third algorithm: classification boostedLogit
+############## Returns a confusion matrix
+logit.wrapper <- function(static,...) {
+
+  mod <- train(classe ~ ., data = subset(static, static$selam == "train")[,-which(names(static)=="selam")],
+               method = "LogitBoost", trControl =
+                 trainControl(method = "cv", number = 4,  allowParallel = TRUE),
+               ...)
+  pred <- predict(mod, newdata = subset(static, static$selam == "test")[,-which(names(static)=="selam")], type = "raw")
+  table(subset(static, static$selam == "test")[, "classe"], pred)
+
+}
+
+############## Add algorithm to the registry with id "forest"
+suppressMessages(addAlgorithm(reg, id = "logit", fun = logit.wrapper))
+
+#############################################
+### Generating Experiments Designs
+#############################################
+
+# Generate design for algorithm "tree"
+pars <- list(cp = c(0.1, 0.05, .01))
+tree.design <- makeDesign("tree", exhaustive = pars)
+
+# Generate design for algorithm "forest"
+pars <- list(ntree = c(100, 500, 1000))
+forest.design <- makeDesign("forest", exhaustive = pars)
+
+# Generate design for algorithm "logit"
+pars <- list(nIter = c(80, 95, 100))
+logit.design <- makeDesign("logit", exhaustive = pars)
+
+##############################################
+### Add algos. to registry and run Experiments
+##############################################
+
+# Define and add experiments using problem and algorithm designs
+# Each experiment will get replicated 2 times
+suppressMessages(addExperiments(reg, repls = 2, algo.designs = 
+                                  list(tree.design, forest.design,logit.design)))
+
+# We will now submit the jobs, note that this may take some time
+suppressWarnings(suppressMessages(submitJobs(reg)))
+
+Time <- Sys.time() - B
+```
+
+The above algorith need ```r round(Time, 0)```hours to complete but the results
+is without appeal based on out-sample misclassification rate Random Forest 
+performs better. This can be observed in the results below.
+
+```{r, cache = TRUE, echo = TRUE}
+##############################################
+### Treating results
+##############################################
+
+# Reduction function which calculates the misclassification rate from the
+# confusion matrices
+reduce <- function(job, res) {
+  n <- sum(res)
+  list(mcr = (n - sum(diag(res))) / n)
+}
+
+# Run the reduction
+suppressMessages(res1 <- reduceResultsExperiments(reg, fun = reduce))
+fact <- subset(res1, res1$algo == "forest" & res1$ntree == 1000)
+fact[is.na(fact)] <-  "Does not apply here"
+A <- rep(NA, times = nrow(res1))
+
+for(i in seq(1, nrow(res1), by = max(res1$repl))){
+
+  A[i] <- sum(res1[i : (i + (max(res1$repl) - 1)), "mcr"])/max(res1$repl)
+
+}
+
+A <- na.omit(A)
+res1 <- res1[ , -which(names(res1) %in% c("id","repl", "mcr"))]
+res1 <- unique(res1)
+res1$id <- 1:nrow(res1)
+res1$mcr <- A
+res1$mcr<- round((res1$mcr * 100), 2)
+res1 <- res1[order(res1$mcr),]
+rownames(res1) <- NULL
+res1$mcr <- paste(res1$mcr, " %", sep = "")
+res1[is.na(res1)] <-  "Does not apply here"
+```
+
+All calculations are cross-validated with 4 - fold methods and replicated twice
+to ensure stability of results.
+
+```{r, echo = TRUE, cache = TRUE}
+res1
+```
+
+The selected method is random forest with hyperparameter ntree = 1000. This 
+method of estimation is selected for next part.
+
+<h3> Estimation </h3>
+```{r, echo = TRUE, cache = TRUE}
+mod <- train(classe ~ ., data =  subset(filterTrain, 
+                                        filterTrain$selam == "train")
+             [,-which(names(filterTrain)=="selam")], method = "rf", prox = TRUE, 
+             trControl = trainControl(method = "cv", number = 4,  allowParallel 
+                                      = TRUE), ntree = 1000)
+pred <- predict(mod, newdata = subset(filterTrain, filterTrain$selam == "train")
+                [,-which(names(filterTrain)=="selam")])
+tab <- table(subset(filterTrain, filterTrain$selam == "train")[, "classe"], pred)
+mcr1 <- (1 - (sum(diag(tab))/sum(tab)))
+pred <- predict(mod, newdata = subset(filterTrain, filterTrain$selam == "test")
+                [,-which(names(filterTrain)=="selam")])
+tab <- table(subset(filterTrain, filterTrain$selam == "test")[, "classe"], pred)
+mcr2 <- (1 - (sum(diag(tab))/sum(tab))) 
+```
+
+The in-sample misclassification rate is about ```r mcr1``` and the out-sample
+misclassification rate is about ```r mcr2```. The model is estimated and cross-
+validated using 4 - folds method.
+```{r, echo = TRUE, cache = TRUE}
+confusionMatrix(subset(filterTrain, filterTrain$selam == "test")[, "classe"], pred)
+```
+
+The above is a summary of the results of the estimation.
+
+<h3> Submission </h3>
+
+```{r, cache = TRUE}
+suppressMessages(suppressWarnings(require(downloader)))
+url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+suppressWarnings(download(url, "data/pml-testing.csv", mode = "wb"))
+test <- read.csv("data/pml-testing.csv")
+test[is.na(test)] <- 0
+pred <- predict(mod, newdata = test)
+```
+
+The results of the prediction on the testing data set is listed below :
+
+```{r, cache = TRUE}
+pred
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i], file = filename, row.names = FALSE, col.names = FALSE)
+  }
+}
+
+pml_write_files(pred)
+```
+
+<h3> References </h3>
+
+<sup>1</sup>Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks,
+H. (2012).<b> Wearable Computing: Accelerometers' Data Classification of Body 
+Postures and Movements </b> <i> Data file retrieved from </i>
+<a href="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv">
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv </a>
+
+<sup>2</sup> http://topepo.github.io/caret/preprocess.html
